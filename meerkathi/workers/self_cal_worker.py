@@ -1387,7 +1387,7 @@ def worker(pipeline, recipe, config):
         model_files = []
         for ii in range(0, cal_niter + 1):
             model_file = glob.glob(
-                "{0:s}/image_{1:d}/{2:s}_{3:s}_?.lsm.html".format(pipeline.continuum, ii+1, prefix, field))
+                "{0:s}/image_{1:d}/{2:s}_{3:s}_?-pybdsm.lsm.html".format(pipeline.continuum, ii+1, prefix, field))
             model_files.append(model_file)
 
         model_files = sorted(model_files)
@@ -1405,7 +1405,7 @@ def worker(pipeline, recipe, config):
             recipe.add('cab/aimfast', step,
                        {
                            "compare-models": models,
-                           "area-factor": config['aimfast'].get('area_factor')
+                           "tolerance": config['aimfast'].get('radius')
                        },
                        input=pipeline.input,
                        output=pipeline.output,
