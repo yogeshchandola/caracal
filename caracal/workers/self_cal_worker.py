@@ -1763,7 +1763,7 @@ def worker(pipeline, recipe, config):
         # Get residuals to compare
         res_files = []
         residuals_compare = []
-        for ii in range(1, cal_niter + 1):
+        for ii in range(1, cal_niter + 2):
             res_file = glob.glob("{0:s}/image_{1:d}/{2:s}_{3:s}_?-MFS-residual.fits".format(
                 pipeline.continuum, ii, prefix, field))
             if res_file:
@@ -1777,7 +1777,7 @@ def worker(pipeline, recipe, config):
         # Get models to compare
         model_files = []
         models_compare = []
-        for ii in range(1, cal_niter + 1):
+        for ii in range(1, cal_niter + 2):
             model_file = glob.glob(
                 "{0:s}/image_{1:d}/{2:s}_{3:s}_?-pybdsm.lsm.html".format(pipeline.continuum, ii, prefix, field))
             if model_file:
