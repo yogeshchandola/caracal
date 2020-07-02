@@ -671,7 +671,8 @@ def worker(pipeline, recipe, config):
             "auto-threshold": config['make_cube']['wscl_auto_thr'],
             "multiscale": config['make_cube']['wscl_multiscale'],
             "multiscale-scale-bias": config['make_cube']['wscl_multiscale_bias'],
-            "no-update-model-required": config['make_cube']['wscl_noupdatemod']
+            "no-update-model-required": config['make_cube']['wscl_noupdatemod'],
+            "joinchannels": True, # temporary hack
         }
         if config['make_cube']['wscl_multiscale_scales']:
             line_image_opts.update({"multiscale-scales": list(map(int,config['make_cube']['wscl_multiscale_scales'].split(',')))})
