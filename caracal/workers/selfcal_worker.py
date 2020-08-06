@@ -12,6 +12,7 @@ import numpy as np
 import stimela.dismissable as sdm
 from caracal.dispatch_crew import utils
 from astropy.io import fits as fits
+from astropy import wcs
 from stimela.pathformatter import pathformatter as spf
 from typing import Any
 from caracal.workers.utils import manage_flagsets as manflags
@@ -2058,6 +2059,72 @@ def worker(pipeline, recipe, config):
                        output=pipeline.output,
                        label='{0:s}:: Plot gain tables : {1:s}'.format(step, ' '.join(D_tables)))
 
+    def wsclean_on_a_diet(wsclean_file, clean_mask_file, requested_fraction):
+
+        # Load (RA,Dec,I) from WSClean list of components
+        wsclean_sources = np.loadtxt(wsclean_file,delimiter=',',dtype='str')
+        wsclean_header,wsclean_sources = wsclean_sources[0],wsclean_sources[1:]
+
+        print('# Found {0:d} WSClean components in {1:s}'.format(wsclean_sources.shape[0],wsclean_file))
+        print('# Converting their RA,Dec to X,Y in the .FITS clean mask {0:s}'.format(clean_mask_file))
+
+        # Get RA and convert from "h:m:s.ss" to decimal degrees
+        ra = wsclean_sources[:,2].copy()
+        for rr in range(ra.shape[0]):
+            rah,ram,ras = list(map(float,ra[rr].split(':')))
+            ra_decimal = 15*(np.abs(rah)+ram/60+ras/3600)*np.sign(rah)
+            ra[rr] = '{0:.9f}'.format(ra_decimal)
+        ra = ra.astype(float)
+
+        # Get DEC and convert from "d.m.s.ss" to decimal degrees
+        dec = wsclean_sources[:,3].copy()
+        for dd in range(dec.shape[0]):
+            if len(dec[dd].split('.')) == 4:
+                decd,decm,decs,decss = dec[dd].split('.')
+                decs = '{0:s}.{1:s}'.format(decs,decss)
+            elif len(dec[dd].split('.')) == 3:
+                decd,decm,decs = dec[dd].split('.')
+            decd,decm,decs =  list(map(float,[decd,decm,decs]))
+            dec_decimal = (np.abs(decd)+decm/60+decs/3600)*np.sign(decd)
+            dec[dd] = '{0:.9f}'.format(dec_decimal)
+        dec = dec.astype(float)
+
+        # Get flux densities
+        fluxdens = wsclean_sources[:,4].copy().astype(float)
+
+        # Load .FITS clean mask
+        f = fits.open(clean_mask_file)
+        head = f[0].header
+        data = f[0].data
+        while len(data.shape) > 2: data = data[0]
+
+        # Get X,Y location of WSClean components in the .FITS clean mask
+        wcsin = wcs.WCS(head, naxis=[wcs.WCSSUB_CELESTIAL])
+        x,y = wcsin.wcs_world2pix(ra,dec,0)
+        x,y = np.rint(x).astype(int),np.rint(y).astype(int)
+        print('# Assigning WSClean components to objects in the .FITS clean mask based on X,Y')
+
+        # Associate each WSClean component to an object from the .FITS clean mask
+        ids = data[y,x]
+        nr_sources = data.max()
+        int_fluxes = np.array([fluxdens[ids==ii].sum() for ii in range(1,nr_sources+1)])
+        print('# Integrating fluxes within objects and sorting objects accordingly')
+
+        # Integrate fluxes and sort objects accordingly
+        sort_fluxes = np.argsort(int_fluxes)[::-1]
+        int_fluxes,sorted_ids = int_fluxes[sort_fluxes],np.arange(1,nr_sources+1)[sort_fluxes]
+        field_flux_fraction = np.array([int_fluxes[:ii].sum() for ii in range(1,int_fluxes.shape[0]+1)])/int_fluxes.sum()
+        brightest = sorted_ids[field_flux_fraction <= requested_fraction]
+        brightest = [wsclean_sources[ids==bb] for bb in brightest]
+        print('#')
+        print('# The requested {0:.0f}% of the total field flux is contained in:'.format(requested_fraction*100))
+        print('#   - the {0:d} brightest objects (out of {1:d})'.format(len(brightest),nr_sources))
+        brightest = np.concatenate(brightest,axis=0)
+        print('#   - {0:d} WSClean components (out of {1:d})'.format(brightest.shape[0],wsclean_sources.shape[0]))
+        print('# Saving those WSClean components to new source list {0:s}'.format(wsclean_file.replace('.txt','_brightest.txt')))
+        np.savetxt(wsclean_file.replace('.txt','_brightest.txt'),brightest,fmt='%s',delimiter=',',header=','.join(wsclean_header),comments='')
+
+
     # decide which tool to use for calibration
     calwith = config['calibrate_with'].lower()
     if calwith == 'meqtrees':
@@ -2144,7 +2211,7 @@ def worker(pipeline, recipe, config):
                 calibrate(target_iter, self_cal_iter_counter, selfcal_products,
                           get_dir_path(image_path, pipeline), mslist, field)
             mask_key=config['image']['cleanmask_method'][self_cal_iter_counter if len(config['image']['cleanmask_method']) > self_cal_iter_counter else -1]
-            if mask_key=='sofia' and self_cal_iter_counter != cal_niter+1:
+            if mask_key=='sofia' and self_cal_iter_counter != cal_niter+1 and pipeline.enable_task(config, 'image'):
                 sofia_mask(target_iter, self_cal_iter_counter, get_dir_path(
                     image_path, pipeline), field)
                 recipe.run()
@@ -2330,6 +2397,21 @@ def worker(pipeline, recipe, config):
             if crystalball_model == 'auto':
                 crystalball_model = '{0:s}/{1:s}_{2:s}_{3:d}-sources.txt'.format(get_dir_path(image_path,
                                                                             pipeline), prefix, field, self_cal_iter_counter)
+            if config['transfer_model']['flux_fraction'] < 1:
+                clean_mask_file = 'masking/{0:s}_{1:s}_{2:d}_clean_mask.fits'.format(prefix,field,self_cal_iter_counter)
+
+                recipe.add(wsclean_on_a_diet, "select-bright-sources",
+                       {
+                           "wsclean_file": pipeline.output+'/'+crystalball_model,
+                           "clean_mask_file": pipeline.output+'/'+clean_mask_file,
+                           "requested_fraction": config['transfer_model']['flux_fraction'],
+                       },
+                       input=pipeline.input,
+                       output=pipeline.output,
+                       label='Select bright sources')
+
+                crystalball_model = crystalball_model.replace('.txt','_brightest.txt')
+
             for i, msname in enumerate(mslist_out):
                 step = 'transfer_model-field{0:d}-ms{1:d}'.format(target_iter,i)
                 recipe.add('cab/crystalball', step,

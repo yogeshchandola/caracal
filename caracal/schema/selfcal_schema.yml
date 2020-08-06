@@ -633,6 +633,11 @@ mapping:
             desc: Name of the sky model file. (Currently the only supported format is that of WSClean component lists.) When 'auto', the pipeline builds the file name from the input parameters of the selfcal loop. The file is assumed to be in the 'output' directory.
             required: false
             example: 'auto'
+          flux_fraction:
+            type: float
+            desc: Select only the WSclean components forming the objects which, starting from the brightest object and moving towards the faintest, make up the requested fraction of the total flux density in the sky model. This parameter must be a number in the range (0,1]. If = 1, all WSClean components are selected. If < 1, a clean mask with objects IDs will be used to assign each WSClean component to an object and make the selection.
+            required: false
+            example: '1'
           row_chunks:
             type: int
             desc: Number of rows of the input .MS that are processed in a single chunk.
@@ -645,17 +650,17 @@ mapping:
             example: '0'
           within:
             type: str
-            desc: Give the JS9 region file. Only sources within those regions will be included.
+            desc: Give the JS9 region file. Only WSClean components within those regions will be included.
             required: false
             example: ''
           points_only:
             type: bool
-            desc: Select only 'point' sources.
+            desc: Select only 'delta' WSClean components (i.e., ignore Gaussian components from multi-scale clean).
             required: false
             example: 'False'
           num_sources:
             type: int
-            desc: Select only N brightest sources.
+            desc: Select only N brightest WSClean components. Note that, unlike in the selection based on the "flux_fraction" parameter above, in this case the WSClean components are selected independent of their distribution relative to one another (i.e., independent of whether they belong to a same object).
             required: false
             example: "0"
           num_workers:
